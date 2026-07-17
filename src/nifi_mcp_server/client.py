@@ -52,6 +52,7 @@ class NiFiClient:
 		reraise=True,
 	)
 	def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+		cert=self.client_cert
 		resp = self.session.get(self._url(path), params=params, timeout=self.timeout, cert=self.client_cert)
 		if not resp.ok:
 			error_body = resp.text if resp.text else "(empty response)"
@@ -69,6 +70,7 @@ class NiFiClient:
 		reraise=True,
 	)
 	def _put(self, path: str, data: Dict[str, Any]) -> Dict[str, Any]:
+		cert=self.client_cert
 		resp = self.session.put(self._url(path), json=data, timeout=self.timeout, cert=self.client_cert)
 		if not resp.ok:
 			error_body = resp.text if resp.text else "(empty response)"
@@ -86,6 +88,7 @@ class NiFiClient:
 		reraise=True,
 	)
 	def _post(self, path: str, data: Dict[str, Any]) -> Dict[str, Any]:
+		cert=self.client_cert
 		resp = self.session.post(self._url(path), json=data, timeout=self.timeout, cert=self.client_cert)
 		if not resp.ok:
 			error_body = resp.text if resp.text else "(empty response)"
@@ -103,6 +106,7 @@ class NiFiClient:
 		reraise=True,
 	)
 	def _delete(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+		cert=self.client_cert
 		resp = self.session.delete(self._url(path), params=params, timeout=self.timeout, cert=self.client_cert)
 		if not resp.ok:
 			error_body = resp.text if resp.text else "(empty response)"

@@ -28,13 +28,15 @@ def _parse_properties_file(path: str) -> Dict[str, str]:
 
 def _pick(props: Dict[str, str], env_key: str, prop_key: str, default: Optional[str] = None) -> Optional[str]:
 	"""
-	Priority: ENV var > properties file > default.
+	Priority: ENV var > properties file (dot-style or ENV-style key) > default.
 	"""
 	val = os.getenv(env_key)
-	if val is not None:
+	if val is not None and str(val).strip() != "":
 		return val
 	if prop_key in props:
 		return props[prop_key]
+	if env_key in props:
+		return props[env_key]
 	return default
 
 
@@ -50,9 +52,9 @@ class ServerConfig:
 	config_file: str = "config.properties"
 
 	# Transport
-	transport: str = "stdio"
-	host: str = "127.0.0.1"
-	port: int = 3030
+	transport: Optional[str] = None
+	host: Optional[str] = None
+	port: Optional[int] = None
 
 	# Runtime environment
 	environment: str = "local"
@@ -131,16 +133,42 @@ class ServerConfig:
 
 	@classmethod
 	def from_env_and_properties(cls, config_path: Optional[str] = None) -> "ServerConfig":
-		path = config_path or os.getenv("CONFIG_PROPERTIES_PATH", "config.properties")
+		# Resolution order:
+		# 1) explicit arg, 2) CONFIG_PROPERTIES_PATH env, 3) ./config.properties,
+		# 4) package-local config.properties (works when launched from repo root)
+		if config_path:
+			if not Path(config_path).exists():
+				raise ValueError(f"Config file not found: {config_path}")
+			path = config_path
+		else:
+			env_path = os.getenv("CONFIG_PROPERTIES_PATH")
+			if env_path:
+				env_path_obj = Path(env_path)
+				if env_path_obj.exists():
+					path = str(env_path_obj)
+				else:
+					cwd_path = Path("config.properties")
+					if cwd_path.exists():
+						path = str(cwd_path)
+					else:
+						path = str(Path(__file__).with_name("config.properties"))
+			else:
+				cwd_path = Path("config.properties")
+				if cwd_path.exists():
+					path = str(cwd_path)
+				else:
+					path = str(Path(__file__).with_name("config.properties"))
+
 		props = _parse_properties_file(path)
 
 		cfg = cls()
 		cfg.config_file = path
 
 		# transport
-		cfg.transport = _pick(props, "MCP_TRANSPORT", "mcp.transport", "stdio") or "stdio"
-		cfg.host = _pick(props, "MCP_HOST", "mcp.host", "127.0.0.1") or "127.0.0.1"
-		cfg.port = int(_pick(props, "MCP_PORT", "mcp.port", "3030") or "3030")
+		cfg.transport = _pick(props, "MCP_TRANSPORT", "mcp.transport", None)
+		cfg.host = _pick(props, "MCP_HOST", "mcp.host", None)
+		port_value = _pick(props, "MCP_PORT", "mcp.port", None)
+		cfg.port = int(port_value) if port_value else None
 
 		# env/runtime
 		cfg.environment = _pick(props, "APP_ENVIRONMENT", "app.environment", "local") or "local"
@@ -246,6 +274,18 @@ class ServerConfig:
 		return cfg
 
 	def validate(self) -> None:
+		if not self.transport:
+			raise ValueError("mcp.transport must be set")
+
+		transport = self.transport.lower()
+		if transport != "stdio":
+			if not self.host:
+				raise ValueError("mcp.host must be set when mcp.transport is not stdio")
+			if self.port is None:
+				raise ValueError("mcp.port must be set when mcp.transport is not stdio")
+			if self.port < 1 or self.port > 65535:
+				raise ValueError("mcp.port must be between 1 and 65535")
+
 		if self.mcp_auth_fail_open:
 			raise ValueError("mcp.auth.fail_open=true is not allowed; fail-closed is required")
 
@@ -254,7 +294,10 @@ class ServerConfig:
 
 		if self.mcp_auth_mode == "basic_static":
 			if not self.mcp_auth_basic_username or not self.mcp_auth_basic_password:
-				raise ValueError("basic_static mode requires mcp.auth.basic.username and mcp.auth.basic.password")
+				raise ValueError(
+					"basic_static mode requires mcp.auth.basic.username and mcp.auth.basic.password "
+					f"(loaded from: {self.config_file})."
+				)
 
 		if self.mcp_auth_mode == "ldap":
 			required = [

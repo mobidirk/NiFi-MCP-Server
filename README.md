@@ -147,22 +147,138 @@ For use with Cloudera Agent Studio, use the `uvx` command:
 }
 ```
 
+### Quick curl smoke test (SSE transport)
+
+When `mcp.transport=sse`, verify the listener and SSE endpoint:
+
+```bash
+curl -i --max-time 3 http://127.0.0.1:3030/sse
+```
+
+Expected result:
+
+- HTTP `200 OK`
+- `content-type: text/event-stream`
+- an SSE `event: endpoint` line with a `/messages/?session_id=...` URL
+
+Note: this command times out after 3 seconds by design (`--max-time 3`) to avoid hanging on an open event stream.
+
+### Configure client authentication to the MCP server
+
+This project supports incoming auth modes (`basic_static`, `none`, `knox`, `ldap`, `nifi_integrated`) via `mcp.auth.*` settings.
+
+Current behavior in this codebase:
+
+- Incoming auth is checked by MCP tools.
+- Tools accept an explicit `authorization` argument, and now also fall back to the transport request `Authorization` header automatically.
+
+For `basic_static`, set these in your config:
+
+```properties
+mcp.auth.mode=basic_static
+mcp.auth.basic.username=admin
+mcp.auth.basic.password=change_me
+```
+
+Create a Basic header value:
+
+```bash
+printf 'admin:change_me' | base64
+```
+
+Use the returned value as:
+
+```text
+Basic <base64(username:password)>
+```
+
+Example tool call argument:
+
+```json
+{
+  "authorization": "Basic YWRtaW46Y2hhbmdlX21l"
+}
+```
+
+LM Studio network example (`examples/mcp.sjon`) includes an `Authorization` header and should work without manually passing `authorization` in each tool call.
+
+### No-NiFi smoke test (auth only)
+
+Enable the auth test tool only for this smoke test:
+
+```bash
+MCP_AUTH_EXPOSE_TEST_TOOL=true python -m nifi_mcp_server.server
+```
+
+Then ask your client:
+
+To verify MCP authentication wiring before configuring a real NiFi backend, ask your client:
+
+```text
+Please call authenticate_request and show me the result.
+```
+
+Expected success response includes:
+
+- `ok: true`
+- `principal.username: admin`
+
+If you get `401 Missing or invalid Basic Authorization header`, your MCP client is not sending the configured `Authorization` header on tool requests.
+
+Note: `authenticate_request` is hidden by default to prevent some MCP clients from repeatedly auto-calling it.
+
 ## Configuration Options
 
-All configuration is done via environment variables:
+Configuration is loaded with this precedence:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `NIFI_API_BASE` | Yes* | Full NiFi API URL (e.g., `https://host/nifi-2-dh/cdp-proxy/nifi-app/nifi-api`) |
-| `KNOX_TOKEN` | Yes* | Knox JWT token for authentication |
-| `KNOX_GATEWAY_URL` | No | Knox gateway URL (alternative to `NIFI_API_BASE`) |
-| `KNOX_COOKIE` | No | Alternative: provide full cookie string instead of token |
-| `KNOX_PASSCODE_TOKEN` | No | Alternative: Knox passcode token (auto-exchanged for JWT) |
-| `NIFI_READONLY` | No | Read-only mode (default: `true`) |
-| `KNOX_VERIFY_SSL` | No | Verify SSL certificates (default: `true`) |
-| `KNOX_CA_BUNDLE` | No | Path to CA certificate bundle |
+1. Environment variables
+2. `config.properties` in current working directory
+3. `src/nifi_mcp_server/config.properties`
 
-\* Either `NIFI_API_BASE` or `KNOX_GATEWAY_URL` is required
+You can also set `CONFIG_PROPERTIES_PATH` to point at a specific properties file.
+
+### Core transport settings
+
+```properties
+mcp.transport=sse
+mcp.host=127.0.0.1
+mcp.port=3030
+```
+
+Supported transports:
+
+- `stdio`: for MCP desktop clients (no TCP listener)
+- `sse`: HTTP listener (default in sample config)
+- `streamable-http`: HTTP MCP transport
+
+If you try `telnet localhost 3030` while using `stdio`, connection refused is expected.
+
+### Core NiFi connectivity settings
+
+```properties
+NIFI_API_BASE=https://<your-nifi>/nifi-api
+KNOX_TOKEN=<your-token>
+nifi.readonly=true
+knox.verify.ssl=true
+knox.ca.bundle=
+```
+
+\* Either `NIFI_API_BASE` or `knox.gateway.url` is required.
+
+### Environment variable equivalents
+
+Environment variables remain supported. Common mappings:
+
+| Environment variable | Property key |
+|----------|----------|
+| `MCP_TRANSPORT` | `mcp.transport` |
+| `MCP_HOST` | `mcp.host` |
+| `MCP_PORT` | `mcp.port` |
+| `NIFI_API_BASE` | `nifi.api.base` |
+| `KNOX_TOKEN` | `knox.token` |
+| `NIFI_READONLY` | `nifi.readonly` |
+| `KNOX_VERIFY_SSL` | `knox.verify.ssl` |
+| `KNOX_CA_BUNDLE` | `knox.ca.bundle` |
 
 
 For the NIFI_API_BASE, form using the url from Knox (less `-token`), and add the postfix `/nifi-app/nifi-api`
@@ -188,11 +304,11 @@ Once configured, you can ask Claude questions like:
 - "Search for processors containing 'kafka'"
 - "Show me the details of connection abc-123"
 
-### Write Operations (when NIFI_READONLY=false)
+### Write Operations (when nifi.readonly=false)
 
 **⚠️ WARNING: Write operations modify your NiFi flows. Use with caution!**
 
-To enable write operations, set `NIFI_READONLY=false` in your configuration. Then you can:
+To enable write operations, set `nifi.readonly=false` (or env `NIFI_READONLY=false`) in your configuration. Then you can:
 
 - **Build flows**: "Create a LogAttribute processor named 'MyLogger' in the root process group"
 - **Manage processors**: "Start processor with ID abc-123", "Stop all processors in group xyz"

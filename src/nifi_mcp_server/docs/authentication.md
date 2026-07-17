@@ -2,6 +2,8 @@
 
 This document explains how authentication for **user -> MCP** works, how it is configured, and how each mode affects runtime behavior.
 
+It also documents how clients should send credentials to the MCP server.
+
 ---
 
 ## Goals
@@ -41,6 +43,95 @@ mcp.authz.required_group=
 - `mcp.auth.fail_open`: must be `false`
 - `mcp.authz.group_check.enabled`: enables group enforcement
 - `mcp.authz.required_group`: group name required if group check is enabled
+
+---
+
+## Client -> MCP: How to send authentication
+
+For `basic_static`, clients authenticate using HTTP Basic credentials:
+
+1. Build `username:password`
+2. Base64 encode it
+3. Send `Authorization: Basic <encoded>`
+
+Example:
+
+```bash
+printf 'admin:change_me' | base64
+```
+
+Result:
+
+```text
+YWRtaW46Y2hhbmdlX21l
+```
+
+Final header:
+
+```text
+Authorization: Basic YWRtaW46Y2hhbmdlX21l
+```
+
+### Important current implementation note
+
+Incoming auth is enforced by MCP tools.
+
+Tools support two input paths:
+
+- Explicit `authorization` tool argument (for example `get_nifi_version(authorization=...)`)
+- Automatic fallback to the transport `Authorization` header (for example headers configured in LM Studio MCP server config)
+
+If both are present, the explicit tool argument is used.
+
+Example tool argument payload:
+
+```json
+{
+  "authorization": "Basic YWRtaW46Y2hhbmdlX21l"
+}
+```
+
+### LM Studio network config example
+
+`examples/mcp.sjon` includes:
+
+```json
+{
+  "mcpServers": {
+    "nifi-mcp-server": {
+      "url": "http://127.0.0.1:3030/sse",
+      "headers": {
+        "Authorization": "Basic YWRtaW46Y2hhbmdlX21l"
+      }
+    }
+  }
+}
+```
+
+With this server behavior, LM Studio header-based configuration should work without passing `authorization` in every tool call.
+
+### Quick validation without NiFi
+
+Enable debug auth tool exposure only during this test:
+
+```bash
+MCP_AUTH_EXPOSE_TEST_TOOL=true python -m nifi_mcp_server.server
+```
+
+Before testing NiFi-dependent tools, validate auth only with:
+
+```text
+Please call authenticate_request and show me the result.
+```
+
+Expected success fields:
+
+- `ok: true`
+- `principal.username: admin`
+
+If result is `401` with `Missing or invalid Basic Authorization header`, the client is not forwarding the configured Authorization header on tool calls.
+
+By default, `authenticate_request` is not exposed to avoid auto-call loops in some MCP clients.
 
 ---
 
@@ -150,18 +241,12 @@ mcp.auth.nifi.tls.client_cert_file=/etc/nifi-mcp/client.crt
 mcp.auth.nifi.tls.client_key_file=/etc/nifi-mcp/client.key
 
 mcp.auth.nifi.token_endpoint=/nifi-api/access/token
-mcp.auth.nifi.token_method=POST
-mcp.auth.nifi.token_content_type=application/x-www-form-urlencoded
-mcp.auth.nifi.token_username_param=username
-mcp.auth.nifi.token_password_param=password
 
 mcp.auth.nifi.current_user_endpoint=/nifi-api/access/current-user
-mcp.auth.nifi.current_user_method=GET
 mcp.auth.nifi.current_user_username_field=identity
 mcp.auth.nifi.current_user_id_field=id
 
 mcp.auth.nifi.user_by_id_endpoint_template=/nifi-api/tenants/users/{id}
-mcp.auth.nifi.user_by_id_method=GET
 mcp.auth.nifi.groups_field=userGroups
 mcp.auth.nifi.groups_field_fallback=component.userGroups
 mcp.auth.nifi.groups_missing_is_denied=true
@@ -205,11 +290,10 @@ If the authenticated user/token is not allowed to call tenant endpoints, group r
 This is independent from user->MCP auth mode and should remain separately configurable.
 
 ```properties
-nifi.auth.mode=mtls
 nifi.tls.cert_file=/etc/nifi-mcp/client.crt
 nifi.tls.key_file=/etc/nifi-mcp/client.key
-nifi.tls.ca_file=/etc/nifi-mcp/ca.pem
-nifi.tls.verify=true
+knox.verify.ssl=true
+knox.ca.bundle=/etc/nifi-mcp/ca.pem
 
 nifi.knox.enabled=false
 ```

@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "nifi-mcp-server": {
+      "command": "/Users/MacDirk/Dev/NiFi-MCP-Server/.venv/bin/python",
+      "args": [
+        "-m",
+        "nifi_mcp_server.server"
+      ],
+      "env": {
+        "MCP_TRANSPORT": "stdio",
+        "CONFIG_PROPERTIES_PATH": "/Users/MacDirk/Dev/NiFi-MCP-Server/src/nifi_mcp_server/config.properties",
+        "NIFI_API_BASE": "https://<your-nifi>/nifi-api",
+        "KNOX_TOKEN": "<your-knox-token>",
+        "NIFI_READONLY": "true"
+      }
+    }
+  }
+}

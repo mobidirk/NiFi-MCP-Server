@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "nifi-mcp-server": {
+      "url": "http://127.0.0.1:3030/sse",
+      "headers": {
+        "Authorization": "Basic YWRtaW46Y2hhbmdlX21l"
+      }
+    }
+  }
+}
